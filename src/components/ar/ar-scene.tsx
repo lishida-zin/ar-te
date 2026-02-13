@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Canvas } from "@react-three/fiber";
 import { createXRStore, XR } from "@react-three/xr";
@@ -13,12 +14,25 @@ import { useBlockStore } from "@/store/block-store";
 export function ArScene() {
   const router = useRouter();
   const [inSession, setInSession] = useState(false);
+
+  // DOM Overlay 用の要素を React ツリー外で作成
+  // （WebXR がこの要素を移動しても React の reconciler と衝突しない）
+  const [overlayEl] = useState(() => document.createElement("div"));
   const [xrStore] = useState(() =>
     createXRStore({
       offerSession: false,
       hitTest: "required",
+      domOverlay: overlayEl,
     }),
   );
+
+  // overlayEl を body に追加/クリーンアップ
+  useEffect(() => {
+    document.body.appendChild(overlayEl);
+    return () => {
+      overlayEl.remove();
+    };
+  }, [overlayEl]);
 
   const resetARState = useCallback(() => {
     useARStore.getState().clearAll();
@@ -28,7 +42,7 @@ export function ArScene() {
   const handleEnterAR = useCallback(async () => {
     resetARState();
 
-    // 最初のブロックを自動選択（配置できない問題を防止）
+    // 最初のブロックを自動選択
     const blocks = useBlockStore.getState().blocks;
     if (blocks.length > 0) {
       useARStore.setState({ activeDefinitionId: blocks[0].id });
@@ -46,7 +60,6 @@ export function ArScene() {
     }
   }, [xrStore, resetARState]);
 
-  // ← 戻る: セッション終了 + トップに遷移（コンポーネント完全破棄で確実にクリーンアップ）
   const handleExitAR = useCallback(() => {
     try {
       const session = xrStore.getState().session;
@@ -91,8 +104,10 @@ export function ArScene() {
         </XR>
       </Canvas>
 
-      {/* UI オーバーレイ（AROverlay 自体が fixed inset-0 で配置） */}
-      {inSession && <AROverlay onExit={handleExitAR} />}
+      {/* DOM Overlay: React Portal で overlayEl にレンダリング
+          overlayEl は React ツリー外なので WebXR が移動しても安全 */}
+      {inSession &&
+        createPortal(<AROverlay onExit={handleExitAR} />, overlayEl)}
 
       {/* AR未開始時のUI */}
       {!inSession && (
