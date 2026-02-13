@@ -8,89 +8,84 @@ import { PlacedBlocks } from "./placed-blocks";
 import { AROverlay } from "./ar-overlay";
 import { useARStore } from "@/store/ar-store";
 
+function makeXRStore(overlayEl?: HTMLElement) {
+  return createXRStore({
+    offerSession: false,
+    hitTest: "required",
+    domOverlay: overlayEl,
+  });
+}
+
 export function ArScene() {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [inSession, setInSession] = useState(false);
-  // セッションごとに XR store を再生成するためのキー
+  // Canvas 再マウント用キー（セッションごとにインクリメント）
   const [sessionKey, setSessionKey] = useState(0);
-  const xrStoreRef = useRef<ReturnType<typeof createXRStore> | null>(null);
+  const [xrStore, setXrStore] = useState(() => makeXRStore());
 
-  // セッション開始時に新しい XR store を作成
-  const handleEnterAR = useCallback(async () => {
-    // AR状態をリセット
+  const resetARState = useCallback(() => {
     useARStore.getState().clearAll();
     useARStore.setState({ hitPosition: null, mode: "place" });
+  }, []);
 
-    // DOM overlay root を取得
-    const overlayRoot = overlayRef.current ?? undefined;
+  const handleEnterAR = useCallback(async () => {
+    resetARState();
 
-    // 新しい XR store を作成（セッションごとに新規）
-    const store = createXRStore({
-      offerSession: false,
-      hitTest: "required",
-      domOverlay: overlayRoot,
-    });
-    xrStoreRef.current = store;
+    // 新しい XR store を作成（前回セッションの内部状態を破棄）
+    const newStore = makeXRStore(overlayRef.current ?? undefined);
+    setXrStore(newStore);
     setSessionKey((k) => k + 1);
 
+    // Canvas が新しい store で再マウントされるのを待つ
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
     try {
-      // 少し待ってから enterAR（Canvas の再マウントを待つ）
-      await new Promise((r) => setTimeout(r, 100));
-      await store.enterAR();
+      await newStore.enterAR();
       setInSession(true);
     } catch (err) {
       console.error("AR session failed:", err);
     }
-  }, []);
+  }, [resetARState]);
 
   const handleExitAR = useCallback(() => {
-    const store = xrStoreRef.current;
-    if (store) {
-      const session = store.getState().session;
-      if (session) {
-        session.end();
-      }
+    const session = xrStore.getState().session;
+    if (session) {
+      session.end();
     }
     setInSession(false);
-    // AR状態をリセット
-    useARStore.getState().clearAll();
-    useARStore.setState({ hitPosition: null, mode: "place" });
-  }, []);
+    resetARState();
+  }, [xrStore, resetARState]);
 
-  // セッション終了を検知（ブラウザ側から終了された場合）
+  // ブラウザ側からセッション終了された場合を検知
   useEffect(() => {
-    const store = xrStoreRef.current;
-    if (!store || !inSession) return;
+    if (!inSession) return;
 
-    const unsubscribe = store.subscribe((state) => {
-      if (!state.session && inSession) {
+    const unsubscribe = xrStore.subscribe((state, prev) => {
+      if (prev.session && !state.session) {
         setInSession(false);
-        useARStore.getState().clearAll();
-        useARStore.setState({ hitPosition: null, mode: "place" });
+        resetARState();
       }
     });
 
     return unsubscribe;
-  }, [inSession, sessionKey]);
+  }, [xrStore, inSession, resetARState]);
 
   return (
     <div className="relative h-dvh w-full">
-      {/* AR Canvas — sessionKey でセッションごとに再マウント */}
-      {xrStoreRef.current && (
-        <Canvas
-          key={sessionKey}
-          className="!absolute inset-0"
-          gl={{ alpha: true }}
-          style={{ background: "transparent" }}
-        >
-          <XR store={xrStoreRef.current}>
-            <ambientLight intensity={0.8} />
-            <directionalLight position={[2, 4, 1]} intensity={1} />
-            <HitIndicator />
-            <PlacedBlocks />
-          </XR>
-        </Canvas>
-      )}
+      {/* AR Canvas — sessionKey で再マウントし WebXR フックをリセット */}
+      <Canvas
+        key={sessionKey}
+        className="!absolute inset-0"
+        gl={{ alpha: true }}
+        style={{ background: "transparent" }}
+      >
+        <XR store={xrStore}>
+          <ambientLight intensity={0.8} />
+          <directionalLight position={[2, 4, 1]} intensity={1} />
+          <HitIndicator />
+          <PlacedBlocks />
+        </XR>
+      </Canvas>
 
       {/* DOM Overlay (AR session 用) */}
       <div ref={overlayRef}>
