@@ -8,16 +8,15 @@ import { PlacedBlocks } from "./placed-blocks";
 import { AROverlay } from "./ar-overlay";
 import { useARStore } from "@/store/ar-store";
 
-function makeXRStore(overlayEl?: HTMLElement) {
+function makeXRStore() {
   return createXRStore({
     offerSession: false,
     hitTest: "required",
-    domOverlay: overlayEl,
+    // domOverlay は使わない（React の DOM 管理と競合するため）
   });
 }
 
 export function ArScene() {
-  const overlayRef = useRef<HTMLDivElement>(null);
   const [inSession, setInSession] = useState(false);
   const [sessionKey, setSessionKey] = useState(0);
   const [xrStore, setXrStore] = useState(() => makeXRStore());
@@ -31,12 +30,11 @@ export function ArScene() {
   const handleEnterAR = useCallback(async () => {
     resetARState();
 
-    const newStore = makeXRStore(overlayRef.current ?? undefined);
+    const newStore = makeXRStore();
     const newKey = sessionKey + 1;
     setXrStore(newStore);
     setSessionKey(newKey);
 
-    // Canvas が再マウントされるのを十分待つ
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 300);
     });
@@ -47,7 +45,10 @@ export function ArScene() {
       inSessionRef.current = true;
     } catch (err) {
       console.error("AR session failed:", err);
-      alert("AR の起動に失敗しました: " + (err instanceof Error ? err.message : String(err)));
+      alert(
+        "AR の起動に失敗しました: " +
+          (err instanceof Error ? err.message : String(err)),
+      );
     }
   }, [resetARState, sessionKey]);
 
@@ -65,12 +66,10 @@ export function ArScene() {
     resetARState();
   }, [xrStore, resetARState]);
 
-  // ブラウザ側からセッション終了された場合を検知
+  // ブラウザ側からのセッション終了を検知
   useEffect(() => {
     if (!inSession) return;
 
-    // XR store の session 状態をポーリングで監視
-    // (subscribe の引数形式が XR store で異なる可能性があるため)
     const intervalId = setInterval(() => {
       try {
         const state = xrStore.getState();
@@ -89,6 +88,7 @@ export function ArScene() {
 
   return (
     <div className="relative h-dvh w-full">
+      {/* AR Canvas */}
       <Canvas
         key={sessionKey}
         className="!absolute inset-0"
@@ -103,10 +103,14 @@ export function ArScene() {
         </XR>
       </Canvas>
 
-      {/* DOM Overlay */}
-      <div ref={overlayRef}>
-        {inSession && <AROverlay onExit={handleExitAR} />}
-      </div>
+      {/* UI オーバーレイ（DOM Overlay ではなく CSS position で重ねる） */}
+      {inSession && (
+        <div className="absolute inset-0 z-10 pointer-events-none">
+          <div className="pointer-events-auto">
+            <AROverlay onExit={handleExitAR} />
+          </div>
+        </div>
+      )}
 
       {/* AR未開始時のUI */}
       {!inSession && (
