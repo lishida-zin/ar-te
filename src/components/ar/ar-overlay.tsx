@@ -38,18 +38,16 @@ export function AROverlay({ onExit }: AROverlayProps) {
     }
   }, [selectedPlacedId, deletePlaced]);
 
-  const handlePlace = useCallback(() => {
-    if (mode !== "place" || !activeDefinitionId) return;
-    const hitPosition = useARStore.getState().hitPosition;
-    if (hitPosition) {
-      placeBlock(activeDefinitionId, hitPosition);
-    }
-  }, [mode, activeDefinitionId, placeBlock]);
-
+  // 画面中央タッチエリアのタッチ処理
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
       if (e.touches.length === 1 && mode === "place") {
-        handlePlace();
+        // 配置モード: タップでブロック配置
+        if (!activeDefinitionId) return;
+        const hitPosition = useARStore.getState().hitPosition;
+        if (hitPosition) {
+          placeBlock(activeDefinitionId, hitPosition);
+        }
       }
       if (e.touches.length === 2) {
         const a = e.touches[0];
@@ -60,7 +58,7 @@ export function AROverlay({ onExit }: AROverlayProps) {
         ];
       }
     },
-    [mode, handlePlace],
+    [mode, activeDefinitionId, placeBlock],
   );
 
   const handleTouchMove = useCallback(
@@ -107,12 +105,7 @@ export function AROverlay({ onExit }: AROverlayProps) {
   }, []);
 
   return (
-    <div
-      className="ar-overlay"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
+    <div className="fixed inset-0 z-10 flex flex-col">
       {/* 上部バー */}
       <div className="flex items-center justify-between p-3">
         <button
@@ -130,13 +123,22 @@ export function AROverlay({ onExit }: AROverlayProps) {
         </button>
       </div>
 
-      {/* 中央: モード切替 */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+      {/* 中央タッチエリア（配置・ジェスチャー用） */}
+      <div
+        className="flex-1 flex items-center justify-center"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* モード切替ボタン */}
         <div className="flex gap-2">
           {(Object.keys(MODE_LABELS) as ARMode[]).map((m) => (
             <button
               key={m}
-              onClick={() => setMode(m)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMode(m);
+              }}
               className={`rounded-xl px-3 py-2 text-xs font-medium backdrop-blur-sm ${
                 mode === m
                   ? "bg-white/90 text-black"
@@ -149,8 +151,17 @@ export function AROverlay({ onExit }: AROverlayProps) {
         </div>
       </div>
 
+      {/* 選択中ブロック表示 */}
+      {activeDefinitionId && (
+        <div className="px-3 pb-1">
+          <span className="text-xs text-white/70">
+            選択中: {blocks.find((b) => b.id === activeDefinitionId)?.name ?? ""}
+          </span>
+        </div>
+      )}
+
       {/* 下部: ブロック選択パネル */}
-      <div className="absolute bottom-0 left-0 right-0 bg-black/50 p-3 backdrop-blur-sm">
+      <div className="bg-black/50 p-3 backdrop-blur-sm safe-area-bottom">
         <div className="flex gap-3 overflow-x-auto pb-2">
           {blocks.map((block) => (
             <button
@@ -163,10 +174,10 @@ export function AROverlay({ onExit }: AROverlayProps) {
               }`}
             >
               <div
-                className="h-8 w-8 rounded-md"
+                className="h-10 w-10 rounded-lg"
                 style={{ backgroundColor: block.color }}
               />
-              <span className="text-[10px] text-white">{block.name}</span>
+              <span className="text-xs text-white">{block.name}</span>
             </button>
           ))}
         </div>

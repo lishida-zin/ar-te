@@ -91,14 +91,8 @@ export function ArScene() {
         </XR>
       </Canvas>
 
-      {/* UI オーバーレイ */}
-      {inSession && (
-        <div className="absolute inset-0 z-10 pointer-events-none">
-          <div className="pointer-events-auto">
-            <AROverlay onExit={handleExitAR} />
-          </div>
-        </div>
-      )}
+      {/* UI オーバーレイ（AROverlay 自体が fixed inset-0 で配置） */}
+      {inSession && <AROverlay onExit={handleExitAR} />}
 
       {/* AR未開始時のUI */}
       {!inSession && (
