@@ -19,9 +19,9 @@ function makeXRStore(overlayEl?: HTMLElement) {
 export function ArScene() {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [inSession, setInSession] = useState(false);
-  // Canvas 再マウント用キー（セッションごとにインクリメント）
   const [sessionKey, setSessionKey] = useState(0);
   const [xrStore, setXrStore] = useState(() => makeXRStore());
+  const inSessionRef = useRef(false);
 
   const resetARState = useCallback(() => {
     useARStore.getState().clearAll();
@@ -31,28 +31,37 @@ export function ArScene() {
   const handleEnterAR = useCallback(async () => {
     resetARState();
 
-    // 新しい XR store を作成（前回セッションの内部状態を破棄）
     const newStore = makeXRStore(overlayRef.current ?? undefined);
+    const newKey = sessionKey + 1;
     setXrStore(newStore);
-    setSessionKey((k) => k + 1);
+    setSessionKey(newKey);
 
-    // Canvas が新しい store で再マウントされるのを待つ
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // Canvas が再マウントされるのを十分待つ
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 300);
+    });
 
     try {
       await newStore.enterAR();
       setInSession(true);
+      inSessionRef.current = true;
     } catch (err) {
       console.error("AR session failed:", err);
+      alert("AR の起動に失敗しました: " + (err instanceof Error ? err.message : String(err)));
     }
-  }, [resetARState]);
+  }, [resetARState, sessionKey]);
 
   const handleExitAR = useCallback(() => {
-    const session = xrStore.getState().session;
-    if (session) {
-      session.end();
+    try {
+      const session = xrStore.getState().session;
+      if (session) {
+        session.end();
+      }
+    } catch {
+      // ignore
     }
     setInSession(false);
+    inSessionRef.current = false;
     resetARState();
   }, [xrStore, resetARState]);
 
@@ -60,19 +69,26 @@ export function ArScene() {
   useEffect(() => {
     if (!inSession) return;
 
-    const unsubscribe = xrStore.subscribe((state, prev) => {
-      if (prev.session && !state.session) {
-        setInSession(false);
-        resetARState();
+    // XR store の session 状態をポーリングで監視
+    // (subscribe の引数形式が XR store で異なる可能性があるため)
+    const intervalId = setInterval(() => {
+      try {
+        const state = xrStore.getState();
+        if (!state.session && inSessionRef.current) {
+          setInSession(false);
+          inSessionRef.current = false;
+          resetARState();
+        }
+      } catch {
+        // ignore
       }
-    });
+    }, 1000);
 
-    return unsubscribe;
+    return () => clearInterval(intervalId);
   }, [xrStore, inSession, resetARState]);
 
   return (
     <div className="relative h-dvh w-full">
-      {/* AR Canvas — sessionKey で再マウントし WebXR フックをリセット */}
       <Canvas
         key={sessionKey}
         className="!absolute inset-0"
@@ -87,7 +103,7 @@ export function ArScene() {
         </XR>
       </Canvas>
 
-      {/* DOM Overlay (AR session 用) */}
+      {/* DOM Overlay */}
       <div ref={overlayRef}>
         {inSession && <AROverlay onExit={handleExitAR} />}
       </div>

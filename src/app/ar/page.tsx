@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ARErrorBoundary } from "@/components/ar/error-boundary";
 
 const ArScene = dynamic(
   () => import("@/components/ar/ar-scene").then((mod) => mod.ArScene),
@@ -8,5 +9,9 @@ const ArScene = dynamic(
 );
 
 export default function ARPage() {
-  return <ArScene />;
+  return (
+    <ARErrorBoundary>
+      <ArScene />
+    </ARErrorBoundary>
+  );
 }
