@@ -1,26 +1,24 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Canvas } from "@react-three/fiber";
 import { createXRStore, XR } from "@react-three/xr";
 import { HitIndicator } from "./hit-indicator";
 import { PlacedBlocks } from "./placed-blocks";
 import { AROverlay } from "./ar-overlay";
 import { useARStore } from "@/store/ar-store";
-
-function makeXRStore() {
-  return createXRStore({
-    offerSession: false,
-    hitTest: "required",
-    // domOverlay は使わない（React の DOM 管理と競合するため）
-  });
-}
+import { useBlockStore } from "@/store/block-store";
 
 export function ArScene() {
+  const router = useRouter();
   const [inSession, setInSession] = useState(false);
-  const [sessionKey, setSessionKey] = useState(0);
-  const [xrStore, setXrStore] = useState(() => makeXRStore());
-  const inSessionRef = useRef(false);
+  const [xrStore] = useState(() =>
+    createXRStore({
+      offerSession: false,
+      hitTest: "required",
+    }),
+  );
 
   const resetARState = useCallback(() => {
     useARStore.getState().clearAll();
@@ -30,19 +28,15 @@ export function ArScene() {
   const handleEnterAR = useCallback(async () => {
     resetARState();
 
-    const newStore = makeXRStore();
-    const newKey = sessionKey + 1;
-    setXrStore(newStore);
-    setSessionKey(newKey);
-
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 300);
-    });
+    // 最初のブロックを自動選択（配置できない問題を防止）
+    const blocks = useBlockStore.getState().blocks;
+    if (blocks.length > 0) {
+      useARStore.setState({ activeDefinitionId: blocks[0].id });
+    }
 
     try {
-      await newStore.enterAR();
+      await xrStore.enterAR();
       setInSession(true);
-      inSessionRef.current = true;
     } catch (err) {
       console.error("AR session failed:", err);
       alert(
@@ -50,8 +44,9 @@ export function ArScene() {
           (err instanceof Error ? err.message : String(err)),
       );
     }
-  }, [resetARState, sessionKey]);
+  }, [xrStore, resetARState]);
 
+  // ← 戻る: セッション終了 + トップに遷移（コンポーネント完全破棄で確実にクリーンアップ）
   const handleExitAR = useCallback(() => {
     try {
       const session = xrStore.getState().session;
@@ -61,36 +56,29 @@ export function ArScene() {
     } catch {
       // ignore
     }
-    setInSession(false);
-    inSessionRef.current = false;
     resetARState();
-  }, [xrStore, resetARState]);
+    router.push("/");
+  }, [xrStore, resetARState, router]);
 
-  // ブラウザ側からのセッション終了を検知
+  // コンポーネント破棄時にセッション終了（ブラウザバック対応）
   useEffect(() => {
-    if (!inSession) return;
-
-    const intervalId = setInterval(() => {
+    return () => {
       try {
-        const state = xrStore.getState();
-        if (!state.session && inSessionRef.current) {
-          setInSession(false);
-          inSessionRef.current = false;
-          resetARState();
+        const session = xrStore.getState().session;
+        if (session) {
+          session.end();
         }
       } catch {
         // ignore
       }
-    }, 1000);
-
-    return () => clearInterval(intervalId);
-  }, [xrStore, inSession, resetARState]);
+      resetARState();
+    };
+  }, [xrStore, resetARState]);
 
   return (
     <div className="relative h-dvh w-full">
       {/* AR Canvas */}
       <Canvas
-        key={sessionKey}
         className="!absolute inset-0"
         gl={{ alpha: true }}
         style={{ background: "transparent" }}
@@ -103,7 +91,7 @@ export function ArScene() {
         </XR>
       </Canvas>
 
-      {/* UI オーバーレイ（DOM Overlay ではなく CSS position で重ねる） */}
+      {/* UI オーバーレイ */}
       {inSession && (
         <div className="absolute inset-0 z-10 pointer-events-none">
           <div className="pointer-events-auto">

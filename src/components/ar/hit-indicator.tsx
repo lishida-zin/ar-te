@@ -11,28 +11,28 @@ const _position = new Vector3();
 
 export function HitIndicator() {
   const meshRef = useRef<Mesh>(null);
-  const mode = useARStore((s) => s.mode);
-  const visible = mode === "place";
 
+  // ヒットテストは常時有効（モードに関係なく位置を取得）
   useXRHitTest(
-    visible
-      ? (results, getWorldMatrix) => {
-          if (results.length === 0) return;
-          getWorldMatrix(_matrix, results[0]);
-          _position.setFromMatrixPosition(_matrix);
-          // Store hit position for placement
-          useARStore.setState({ hitPosition: _position.toArray() as [number, number, number] });
-        }
-      : undefined,
+    (results, getWorldMatrix) => {
+      if (results.length === 0) return;
+      getWorldMatrix(_matrix, results[0]);
+      _position.setFromMatrixPosition(_matrix);
+      useARStore.setState({
+        hitPosition: _position.toArray() as [number, number, number],
+      });
+    },
     "viewer",
   );
 
+  // レティクルは配置モード時のみ表示
   useFrame(() => {
     if (!meshRef.current) return;
     const hitPos = useARStore.getState().hitPosition;
-    if (hitPos) {
+    const mode = useARStore.getState().mode;
+    if (hitPos && mode === "place") {
       meshRef.current.position.set(hitPos[0], hitPos[1], hitPos[2]);
-      meshRef.current.visible = visible;
+      meshRef.current.visible = true;
     } else {
       meshRef.current.visible = false;
     }
